@@ -1,11 +1,11 @@
 {
-  "name": "Example Plugin",
-  "author": "John Doe",
-  "flags": ["debug", "_root"],
+  "name": "Home Assistant MQTT",
+  "author": "jamesbiederbeck",
+  "flags": ["_root"],
   "api_version": 1,
   "publish": {
-    "tags": ["template", "root"],
-    "description": "Decky example plugin.",
-    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+    "tags": ["homeassistant", "mqtt", "smarthome", "automation"],
+    "description": "Publish Steam Deck telemetry (battery, disk, game, network) to Home Assistant via MQTT Discovery.",
+    "image": "https://opengraph.githubassets.com/1/jamesbiederbeck/decky-plugin-homeassistant"
   }
 }
