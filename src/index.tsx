@@ -197,8 +197,8 @@ function Content() {
     try {
       const status = await getConnectionStatus();
       setConnected(status.connected);
-    } catch (error) {
-      console.error("Failed to check status:", error);
+    } catch {
+      // Silently fail for periodic status checks - this is expected when backend is loading
     }
   };
 
@@ -355,7 +355,10 @@ function Content() {
           <TextField
             label="Port"
             value={String(settings.mqtt_port)}
-            onChange={(e) => updateSetting("mqtt_port", parseInt(e.target.value) || 1883)}
+            onChange={(e) => {
+              const parsed = parseInt(e.target.value);
+              updateSetting("mqtt_port", isNaN(parsed) ? 1883 : Math.max(1, Math.min(65535, parsed)));
+            }}
           />
         </PanelSectionRow>
         <PanelSectionRow>
@@ -445,7 +448,10 @@ function Content() {
             <TextField
               label="Publish Interval (seconds)"
               value={String(settings.publish_interval)}
-              onChange={(e) => updateSetting("publish_interval", parseInt(e.target.value) || 30)}
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value);
+                updateSetting("publish_interval", isNaN(parsed) ? 30 : Math.max(5, parsed));
+              }}
             />
           </PanelSectionRow>
         )}
