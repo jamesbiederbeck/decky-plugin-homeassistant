@@ -2,11 +2,11 @@ import {
   ButtonItem,
   PanelSection,
   PanelSectionRow,
-  TextField,
   ToggleField,
   staticClasses,
   Focusable,
-  DialogButton
+  DialogButton,
+  showModal
 } from "@decky/ui";
 import {
   callable,
@@ -15,6 +15,7 @@ import {
 } from "@decky/api"
 import { useState, useEffect, FC } from "react";
 import { FaHome } from "react-icons/fa";
+import TextInputModal from "./components/TextInputModal";
 
 // Backend API calls
 const getSettings = callable<[], Settings>("get_settings");
@@ -345,48 +346,97 @@ function Content() {
       {/* MQTT Configuration */}
       <PanelSection title="MQTT Broker">
         <PanelSectionRow>
-          <TextField
-            label="Host"
-            value={settings.mqtt_host}
-            onChange={(e) => updateSetting("mqtt_host", e.target.value)}
-          />
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <TextField
-            label="Port"
-            value={String(settings.mqtt_port)}
-            onChange={(e) => {
-              const parsed = parseInt(e.target.value);
-              updateSetting("mqtt_port", isNaN(parsed) ? 1883 : Math.max(1, Math.min(65535, parsed)));
+          <ButtonItem
+            layout="below"
+            onClick={() => {
+              showModal(
+                <TextInputModal
+                  title="MQTT Host"
+                  description="Enter the hostname or IP address of your MQTT broker"
+                  initialValue={settings.mqtt_host}
+                  onConfirm={(value) => updateSetting("mqtt_host", value)}
+                />
+              );
             }}
-          />
+          >
+            Host: {settings.mqtt_host || "(not set)"}
+          </ButtonItem>
         </PanelSectionRow>
         <PanelSectionRow>
-          <TextField
-            label="Username"
-            value={settings.mqtt_username}
-            onChange={(e) => updateSetting("mqtt_username", e.target.value)}
-          />
+          <ButtonItem
+            layout="below"
+            onClick={() => {
+              showModal(
+                <TextInputModal
+                  title="MQTT Port"
+                  description="Enter the port number (default: 1883)"
+                  initialValue={String(settings.mqtt_port)}
+                  onConfirm={(value) => {
+                    const parsed = parseInt(value);
+                    updateSetting("mqtt_port", isNaN(parsed) ? 1883 : Math.max(1, Math.min(65535, parsed)));
+                  }}
+                />
+              );
+            }}
+          >
+            Port: {settings.mqtt_port}
+          </ButtonItem>
         </PanelSectionRow>
         <PanelSectionRow>
-          <TextField
-            label="Password"
-            value={settings.mqtt_password}
-            onChange={(e) => updateSetting("mqtt_password", e.target.value)}
-            bIsPassword={true}
-          />
+          <ButtonItem
+            layout="below"
+            onClick={() => {
+              showModal(
+                <TextInputModal
+                  title="MQTT Username"
+                  description="Enter the username for MQTT authentication (optional)"
+                  initialValue={settings.mqtt_username}
+                  onConfirm={(value) => updateSetting("mqtt_username", value)}
+                />
+              );
+            }}
+          >
+            Username: {settings.mqtt_username || "(not set)"}
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={() => {
+              showModal(
+                <TextInputModal
+                  title="MQTT Password"
+                  description="Enter the password for MQTT authentication (optional)"
+                  initialValue={settings.mqtt_password}
+                  isPassword={true}
+                  onConfirm={(value) => updateSetting("mqtt_password", value)}
+                />
+              );
+            }}
+          >
+            Password: {settings.mqtt_password ? "****" : "(not set)"}
+          </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
 
       {/* Device Configuration */}
       <PanelSection title="Device">
         <PanelSectionRow>
-          <TextField
-            label="Hostname"
-            description="Device identifier in Home Assistant"
-            value={settings.hostname}
-            onChange={(e) => updateSetting("hostname", e.target.value)}
-          />
+          <ButtonItem
+            layout="below"
+            onClick={() => {
+              showModal(
+                <TextInputModal
+                  title="Hostname"
+                  description="Device identifier in Home Assistant"
+                  initialValue={settings.hostname}
+                  onConfirm={(value) => updateSetting("hostname", value)}
+                />
+              );
+            }}
+          >
+            Hostname: {settings.hostname || "(not set)"}
+          </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
 
@@ -445,14 +495,24 @@ function Content() {
         </PanelSectionRow>
         {showAdvanced && (
           <PanelSectionRow>
-            <TextField
-              label="Publish Interval (seconds)"
-              value={String(settings.publish_interval)}
-              onChange={(e) => {
-                const parsed = parseInt(e.target.value);
-                updateSetting("publish_interval", isNaN(parsed) ? 30 : Math.max(5, parsed));
+            <ButtonItem
+              layout="below"
+              onClick={() => {
+                showModal(
+                  <TextInputModal
+                    title="Publish Interval"
+                    description="How often to publish telemetry data (in seconds, minimum 5)"
+                    initialValue={String(settings.publish_interval)}
+                    onConfirm={(value) => {
+                      const parsed = parseInt(value);
+                      updateSetting("publish_interval", isNaN(parsed) ? 30 : Math.max(5, parsed));
+                    }}
+                  />
+                );
               }}
-            />
+            >
+              Publish Interval: {settings.publish_interval}s
+            </ButtonItem>
           </PanelSectionRow>
         )}
       </PanelSection>
