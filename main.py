@@ -48,13 +48,18 @@ class MQTTClient:
         self.port = 1883
         self.username = ""
         self.password = ""
+        self.hostname = ""
+        self.status_topic = ""
 
-    def configure(self, host: str, port: int, username: str, password: str):
+    def configure(self, host: str, port: int, username: str, password: str, hostname: str = ""):
         """Configure MQTT connection parameters."""
         self.host = host
         self.port = port
         self.username = username
         self.password = password
+        self.hostname = sanitize_identifier(hostname) if hostname else ""
+        if self.hostname:
+            self.status_topic = f"{STATE_TOPIC_PREFIX}/{self.hostname}/status"
 
     def connect(self) -> bool:
         """Connect to the MQTT broker."""
@@ -67,10 +72,23 @@ class MQTTClient:
             if self.username and self.password:
                 self.client.username_pw_set(self.username, self.password)
 
+            # Set Last Will message - published when client disconnects unexpectedly
+            if self.status_topic:
+                self.client.will_set(
+                    topic=self.status_topic,
+                    payload="offline",
+                    qos=1,
+                    retain=True
+                )
+                decky.logger.info(f"Last Will message set for topic: {self.status_topic}")
+
             def on_connect(client, userdata, flags, reason_code, properties):
                 if reason_code == 0:
                     self.connected = True
                     decky.logger.info(f"Connected to MQTT broker at {self.host}:{self.port}")
+                    # Publish initial online status
+                    if self.status_topic:
+                        self.publish(self.status_topic, "online", retain=True)
                 else:
                     self.connected = False
                     decky.logger.error(f"Failed to connect to MQTT broker: {reason_code}")
@@ -102,6 +120,9 @@ class MQTTClient:
         """Disconnect from the MQTT broker."""
         if self.client:
             try:
+                # Publish offline status before clean disconnect
+                if self.connected and self.status_topic:
+                    self.publish(self.status_topic, "offline", retain=True)
                 self.client.loop_stop()
                 self.client.disconnect()
             except Exception:
@@ -114,11 +135,17 @@ class MQTTClient:
         if not self.client or not self.connected:
             return False
         try:
-            result = self.client.publish(topic, payload, retain=retain)
+            result = self.client.publish(topic, payload, qos=1, retain=retain)
             return result.rc == mqtt.MQTT_ERR_SUCCESS
         except Exception as e:
             decky.logger.error(f"Error publishing to {topic}: {e}")
             return False
+
+    def publish_heartbeat(self) -> bool:
+        """Publish a heartbeat message to keep the status online."""
+        if self.status_topic and self.connected:
+            return self.publish(self.status_topic, "online", retain=True)
+        return False
 
 
 class TelemetryCollector:
@@ -525,6 +552,20 @@ class HomeAssistantDiscovery:
             "icon": "mdi:speedometer"
         })
 
+    def register_status_sensor(self):
+        """Register connection status sensor with Home Assistant."""
+        status_topic = f"{STATE_TOPIC_PREFIX}/{self.hostname}/status"
+
+        # Connection status
+        self.publish_discovery_config("binary_sensor", "status", {
+            "name": f"{self.device_name} Status",
+            "state_topic": status_topic,
+            "payload_on": "online",
+            "payload_off": "offline",
+            "device_class": "connectivity",
+            "icon": "mdi:steam"
+        })
+
 
 class Plugin:
     """Main plugin class for Home Assistant MQTT integration."""
@@ -622,11 +663,13 @@ class Plugin:
     async def connect_mqtt(self) -> dict:
         """Connect to MQTT broker (callable from frontend)."""
         try:
+            hostname = self.settings.get("hostname", get_default_hostname())
             self.mqtt_client.configure(
                 self.settings.get("mqtt_host", ""),
                 self.settings.get("mqtt_port", 1883),
                 self.settings.get("mqtt_username", ""),
-                self.settings.get("mqtt_password", "")
+                self.settings.get("mqtt_password", ""),
+                hostname
             )
 
             success = self.mqtt_client.connect()
@@ -635,7 +678,7 @@ class Plugin:
                 # Initialize discovery and register sensors
                 self.discovery = HomeAssistantDiscovery(
                     self.mqtt_client,
-                    self.settings.get("hostname", get_default_hostname())
+                    hostname
                 )
                 await self._register_sensors()
                 decky.logger.info("MQTT connected and sensors registered")
@@ -658,11 +701,13 @@ class Plugin:
         """Test MQTT connection (callable from frontend)."""
         try:
             test_client = MQTTClient()
+            hostname = self.settings.get("hostname", get_default_hostname())
             test_client.configure(
                 self.settings.get("mqtt_host", ""),
                 self.settings.get("mqtt_port", 1883),
                 self.settings.get("mqtt_username", ""),
-                self.settings.get("mqtt_password", "")
+                self.settings.get("mqtt_password", ""),
+                hostname
             )
             success = test_client.connect()
             test_client.disconnect()
@@ -678,6 +723,9 @@ class Plugin:
         """Register all enabled sensors with Home Assistant."""
         if not self.discovery:
             return
+
+        # Always register status sensor
+        self.discovery.register_status_sensor()
 
         enabled = self.settings.get("enabled_sensors", {})
 
@@ -700,6 +748,9 @@ class Plugin:
         """Publish telemetry data to MQTT."""
         if not self.mqtt_client.connected or not self.discovery:
             return
+
+        # Publish heartbeat to keep status online
+        self.mqtt_client.publish_heartbeat()
 
         enabled = self.settings.get("enabled_sensors", {})
 
