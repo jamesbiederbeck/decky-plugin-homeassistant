@@ -1,6 +1,11 @@
 """
 Home Assistant MQTT Publisher for Steam Deck
 Publishes telemetry data (battery, disk, game, network) to Home Assistant via MQTT Discovery.
+
+Features:
+- MQTT Last Will message to automatically mark Steam Deck as offline when disconnected
+- Heartbeat mechanism to keep status as online during normal operation
+- Automatic sensor registration with Home Assistant Discovery
 """
 
 import os
