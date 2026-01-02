@@ -41,18 +41,23 @@ All sensors are grouped under a single "Steam Deck" device in Home Assistant.
 
 ## Prerequisites
 
-### Home Assistant MQTT Setup
+### Home Assistant MQTT Setup  
+
+Skip Steps 1-3 if you already know what you're doing with MQTT and Home Assistant, and alreay use it. 
 
 1. **Install an MQTT Broker** (if you don't have one)
-
-   The easiest option is to install the [Mosquitto broker add-on](https://github.com/home-assistant/addons/tree/master/mosquitto):
    
+   This will pass messages between Steam Deck and your Home Assistant instance in a low-maintenance, future proof way. 
+
+   The easiest option is to install the Mosquitto broker add-on, but that may not be an option if you don't have Home Assistant running in the [HA OS image](https://www.home-assistant.io/blog/2025/05/22/deprecating-core-and-supervised-installation-methods-and-32-bit-systems#how-to-migrate). [Read about the Mosquitto addon here](https://github.com/home-assistant/addons/tree/master/mosquitto) or jump to your Home Assistant instance and install it easily here: https://my.home-assistant.io/redirect/config_flow_start/?domain=mqtt
    - Go to **Settings** → **Add-ons** → **Add-on Store**
    - Search for "Mosquitto broker"
    - Click **Install**
    - After installation, go to the add-on's **Configuration** tab
    - Create a user/password or configure anonymous access
    - Start the add-on
+  
+   You can also do something like this if you aren't using a supervised install: https://pimylifeup.com/mosquitto-mqtt-docker/
 
 2. **Enable MQTT Integration**
 
@@ -74,6 +79,14 @@ All sensors are grouped under a single "Steam Deck" device in Home Assistant.
    ```
    
    Restart Home Assistant if you made changes.
+
+4. **Make a login for your steamdeck in the Mosquitto addon**
+
+   Configure your MQTT broker, as appropriate, and create a username and password (note them) and add them to the configuration in the plugin later. Client certs are not currently supported. If you're using the mosquitto add on from HACS, you can use this link to jump to its page in your Home Assistant instance.
+
+   https://my.home-assistant.io/redirect/supervisor_addon/?addon=core_mosquitto
+
+    then click over to the configuration tab.
 
 ### Steam Deck Setup
 
