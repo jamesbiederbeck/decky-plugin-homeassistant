@@ -65,8 +65,8 @@ install_plugin() {
         echo "Usage: $0 <zip-file-or-url>"
         echo ""
         echo "Examples:"
-        echo "  $0 /path/to/decky-plugin-homeassistant-v1.0.0.zip"
-        echo "  $0 https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/v1.0.0/decky-plugin-homeassistant-v1.0.0.zip"
+        echo "  $0 /path/to/decky-plugin-homeassistant-v1.0.1.zip"
+        echo "  $0 https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/v1.0.1/decky-plugin-homeassistant-v1.0.1.zip"
         exit 1
     fi
     

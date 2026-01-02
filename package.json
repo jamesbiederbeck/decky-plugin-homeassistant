@@ -1,6 +1,6 @@
 {
   "name": "decky-plugin-homeassistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Publish Steam Deck telemetry to Home Assistant via MQTT Discovery",
   "type": "module",
   "scripts": {
