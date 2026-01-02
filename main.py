@@ -1,6 +1,11 @@
 """
 Home Assistant MQTT Publisher for Steam Deck
 Publishes telemetry data (battery, disk, game, network) to Home Assistant via MQTT Discovery.
+
+Features:
+- MQTT Last Will message to automatically mark Steam Deck as offline when disconnected
+- Heartbeat mechanism to keep status as online during normal operation
+- Automatic sensor registration with Home Assistant Discovery
 """
 
 import os
@@ -8,6 +13,7 @@ import json
 import socket
 import asyncio
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -48,13 +54,18 @@ class MQTTClient:
         self.port = 1883
         self.username = ""
         self.password = ""
+        self.hostname = ""
+        self.status_topic = ""
 
-    def configure(self, host: str, port: int, username: str, password: str):
+    def configure(self, host: str, port: int, username: str, password: str, hostname: str = ""):
         """Configure MQTT connection parameters."""
         self.host = host
         self.port = port
         self.username = username
         self.password = password
+        self.hostname = sanitize_identifier(hostname) if hostname else ""
+        if self.hostname:
+            self.status_topic = f"{STATE_TOPIC_PREFIX}/{self.hostname}/status"
 
     def connect(self) -> bool:
         """Connect to the MQTT broker."""
@@ -67,10 +78,27 @@ class MQTTClient:
             if self.username and self.password:
                 self.client.username_pw_set(self.username, self.password)
 
+            # Set Last Will message - published when client disconnects unexpectedly
+            if self.status_topic:
+                self.client.will_set(
+                    topic=self.status_topic,
+                    payload="offline",
+                    qos=1,
+                    retain=True
+                )
+                decky.logger.info(f"Last Will message set for topic: {self.status_topic}")
+
             def on_connect(client, userdata, flags, reason_code, properties):
                 if reason_code == 0:
                     self.connected = True
                     decky.logger.info(f"Connected to MQTT broker at {self.host}:{self.port}")
+                    # Publish initial online status with QoS 1 for reliability
+                    if self.status_topic:
+                        result = self.publish(self.status_topic, "online", retain=True, qos=1)
+                        if result:
+                            decky.logger.info(f"Published initial online status to {self.status_topic}")
+                        else:
+                            decky.logger.warning(f"Failed to publish initial online status to {self.status_topic}")
                 else:
                     self.connected = False
                     decky.logger.error(f"Failed to connect to MQTT broker: {reason_code}")
@@ -102,6 +130,15 @@ class MQTTClient:
         """Disconnect from the MQTT broker."""
         if self.client:
             try:
+                # Publish offline status before clean disconnect with QoS 1 for reliability
+                if self.connected and self.status_topic:
+                    result = self.publish(self.status_topic, "offline", retain=True, qos=1)
+                    if result:
+                        decky.logger.info(f"Published offline status to {self.status_topic}")
+                        # Brief wait to ensure message is sent before disconnecting
+                        time.sleep(0.1)
+                    else:
+                        decky.logger.warning(f"Failed to publish offline status to {self.status_topic}")
                 self.client.loop_stop()
                 self.client.disconnect()
             except Exception:
@@ -109,16 +146,23 @@ class MQTTClient:
             self.client = None
         self.connected = False
 
-    def publish(self, topic: str, payload: str, retain: bool = False) -> bool:
+    def publish(self, topic: str, payload: str, retain: bool = False, qos: int = 0) -> bool:
         """Publish a message to an MQTT topic."""
         if not self.client or not self.connected:
             return False
         try:
-            result = self.client.publish(topic, payload, retain=retain)
+            result = self.client.publish(topic, payload, qos=qos, retain=retain)
             return result.rc == mqtt.MQTT_ERR_SUCCESS
         except Exception as e:
             decky.logger.error(f"Error publishing to {topic}: {e}")
             return False
+
+    def publish_heartbeat(self) -> bool:
+        """Publish a heartbeat message to keep the status online."""
+        if self.status_topic and self.connected:
+            # Use QoS 1 for heartbeat to ensure delivery of status updates
+            return self.publish(self.status_topic, "online", retain=True, qos=1)
+        return False
 
 
 class TelemetryCollector:
@@ -525,6 +569,24 @@ class HomeAssistantDiscovery:
             "icon": "mdi:speedometer"
         })
 
+    def register_status_sensor(self):
+        """Register connection status sensor with Home Assistant."""
+        # Use the status topic from mqtt_client to maintain consistency
+        status_topic = self.mqtt_client.status_topic
+        if not status_topic:
+            decky.logger.warning("Status topic not configured, skipping status sensor registration")
+            return
+
+        # Connection status
+        self.publish_discovery_config("binary_sensor", "status", {
+            "name": f"{self.device_name} Status",
+            "state_topic": status_topic,
+            "payload_on": "online",
+            "payload_off": "offline",
+            "device_class": "connectivity",
+            "icon": "mdi:steam"
+        })
+
 
 class Plugin:
     """Main plugin class for Home Assistant MQTT integration."""
@@ -622,11 +684,13 @@ class Plugin:
     async def connect_mqtt(self) -> dict:
         """Connect to MQTT broker (callable from frontend)."""
         try:
+            hostname = self.settings.get("hostname", get_default_hostname())
             self.mqtt_client.configure(
                 self.settings.get("mqtt_host", ""),
                 self.settings.get("mqtt_port", 1883),
                 self.settings.get("mqtt_username", ""),
-                self.settings.get("mqtt_password", "")
+                self.settings.get("mqtt_password", ""),
+                hostname
             )
 
             success = self.mqtt_client.connect()
@@ -635,7 +699,7 @@ class Plugin:
                 # Initialize discovery and register sensors
                 self.discovery = HomeAssistantDiscovery(
                     self.mqtt_client,
-                    self.settings.get("hostname", get_default_hostname())
+                    hostname
                 )
                 await self._register_sensors()
                 decky.logger.info("MQTT connected and sensors registered")
@@ -658,11 +722,13 @@ class Plugin:
         """Test MQTT connection (callable from frontend)."""
         try:
             test_client = MQTTClient()
+            hostname = self.settings.get("hostname", get_default_hostname())
             test_client.configure(
                 self.settings.get("mqtt_host", ""),
                 self.settings.get("mqtt_port", 1883),
                 self.settings.get("mqtt_username", ""),
-                self.settings.get("mqtt_password", "")
+                self.settings.get("mqtt_password", ""),
+                hostname
             )
             success = test_client.connect()
             test_client.disconnect()
@@ -678,6 +744,9 @@ class Plugin:
         """Register all enabled sensors with Home Assistant."""
         if not self.discovery:
             return
+
+        # Always register status sensor
+        self.discovery.register_status_sensor()
 
         enabled = self.settings.get("enabled_sensors", {})
 
@@ -700,6 +769,9 @@ class Plugin:
         """Publish telemetry data to MQTT."""
         if not self.mqtt_client.connected or not self.discovery:
             return
+
+        # Publish heartbeat to keep status online
+        self.mqtt_client.publish_heartbeat()
 
         enabled = self.settings.get("enabled_sensors", {})
 
