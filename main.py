@@ -93,7 +93,11 @@ class MQTTClient:
                     decky.logger.info(f"Connected to MQTT broker at {self.host}:{self.port}")
                     # Publish initial online status with QoS 1 for reliability
                     if self.status_topic:
-                        self.publish(self.status_topic, "online", retain=True, qos=1)
+                        result = self.publish(self.status_topic, "online", retain=True, qos=1)
+                        if result:
+                            decky.logger.info(f"Published initial online status to {self.status_topic}")
+                        else:
+                            decky.logger.warning(f"Failed to publish initial online status to {self.status_topic}")
                 else:
                     self.connected = False
                     decky.logger.error(f"Failed to connect to MQTT broker: {reason_code}")
@@ -127,7 +131,14 @@ class MQTTClient:
             try:
                 # Publish offline status before clean disconnect with QoS 1 for reliability
                 if self.connected and self.status_topic:
-                    self.publish(self.status_topic, "offline", retain=True, qos=1)
+                    result = self.publish(self.status_topic, "offline", retain=True, qos=1)
+                    if result:
+                        decky.logger.info(f"Published offline status to {self.status_topic}")
+                        # Brief wait to ensure message is sent before disconnecting
+                        import time
+                        time.sleep(0.1)
+                    else:
+                        decky.logger.warning(f"Failed to publish offline status to {self.status_topic}")
                 self.client.loop_stop()
                 self.client.disconnect()
             except Exception:
@@ -562,7 +573,6 @@ class HomeAssistantDiscovery:
         """Register connection status sensor with Home Assistant."""
         # Use the status topic from mqtt_client to maintain consistency
         status_topic = self.mqtt_client.status_topic
-        
         if not status_topic:
             decky.logger.warning("Status topic not configured, skipping status sensor registration")
             return
