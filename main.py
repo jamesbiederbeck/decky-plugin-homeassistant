@@ -91,9 +91,9 @@ class MQTTClient:
                 if reason_code == 0:
                     self.connected = True
                     decky.logger.info(f"Connected to MQTT broker at {self.host}:{self.port}")
-                    # Publish initial online status
+                    # Publish initial online status with QoS 1 for reliability
                     if self.status_topic:
-                        self.publish(self.status_topic, "online", retain=True)
+                        self.publish(self.status_topic, "online", retain=True, qos=1)
                 else:
                     self.connected = False
                     decky.logger.error(f"Failed to connect to MQTT broker: {reason_code}")
@@ -125,9 +125,9 @@ class MQTTClient:
         """Disconnect from the MQTT broker."""
         if self.client:
             try:
-                # Publish offline status before clean disconnect
+                # Publish offline status before clean disconnect with QoS 1 for reliability
                 if self.connected and self.status_topic:
-                    self.publish(self.status_topic, "offline", retain=True)
+                    self.publish(self.status_topic, "offline", retain=True, qos=1)
                 self.client.loop_stop()
                 self.client.disconnect()
             except Exception:
@@ -135,12 +135,12 @@ class MQTTClient:
             self.client = None
         self.connected = False
 
-    def publish(self, topic: str, payload: str, retain: bool = False) -> bool:
+    def publish(self, topic: str, payload: str, retain: bool = False, qos: int = 0) -> bool:
         """Publish a message to an MQTT topic."""
         if not self.client or not self.connected:
             return False
         try:
-            result = self.client.publish(topic, payload, qos=1, retain=retain)
+            result = self.client.publish(topic, payload, qos=qos, retain=retain)
             return result.rc == mqtt.MQTT_ERR_SUCCESS
         except Exception as e:
             decky.logger.error(f"Error publishing to {topic}: {e}")
@@ -149,7 +149,8 @@ class MQTTClient:
     def publish_heartbeat(self) -> bool:
         """Publish a heartbeat message to keep the status online."""
         if self.status_topic and self.connected:
-            return self.publish(self.status_topic, "online", retain=True)
+            # Use QoS 1 for heartbeat to ensure delivery of status updates
+            return self.publish(self.status_topic, "online", retain=True, qos=1)
         return False
 
 
@@ -559,7 +560,12 @@ class HomeAssistantDiscovery:
 
     def register_status_sensor(self):
         """Register connection status sensor with Home Assistant."""
-        status_topic = f"{STATE_TOPIC_PREFIX}/{self.hostname}/status"
+        # Use the status topic from mqtt_client to maintain consistency
+        status_topic = self.mqtt_client.status_topic
+        
+        if not status_topic:
+            decky.logger.warning("Status topic not configured, skipping status sensor registration")
+            return
 
         # Connection status
         self.publish_discovery_config("binary_sensor", "status", {
