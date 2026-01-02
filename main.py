@@ -13,6 +13,7 @@ import json
 import socket
 import asyncio
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +136,6 @@ class MQTTClient:
                     if result:
                         decky.logger.info(f"Published offline status to {self.status_topic}")
                         # Brief wait to ensure message is sent before disconnecting
-                        import time
                         time.sleep(0.1)
                     else:
                         decky.logger.warning(f"Failed to publish offline status to {self.status_topic}")
