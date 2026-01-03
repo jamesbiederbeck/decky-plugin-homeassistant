@@ -1,5 +1,9 @@
 # Home Assistant MQTT Plugin for Steam Deck
 
+**Under development. Not actually in decky store, but you can download and side load it from the releases tab.**
+
+[![Release](https://img.shields.io/github/v/release/jamesbiederbeck/decky-plugin-homeassistant?style=flat-square](
+
 [![Chat](https://img.shields.io/badge/chat-on%20discord-7289da.svg)](https://deckbrew.xyz/discord)
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin that publishes Steam Deck telemetry to [Home Assistant](https://www.home-assistant.io/) via MQTT Discovery.
