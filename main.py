@@ -248,42 +248,50 @@ class TelemetryCollector:
             "sd_mounted": False
         }
 
-        # Internal storage (root filesystem)
+        # Internal storage - use /home mount point instead of /
+        # This gives a more accurate representation of user-available storage
         try:
-            stat = os.statvfs("/")
+            stat = os.statvfs("/home")
             total = stat.f_blocks * stat.f_frsize
             free = stat.f_bavail * stat.f_frsize
             used = total - free
             result["internal_free_gb"] = round(free / (1024 ** 3), 2)
             result["internal_total_gb"] = round(total / (1024 ** 3), 2)
             result["internal_percent_used"] = round((used / total) * 100, 1) if total > 0 else 0
-        except Exception:
-            pass
+        except Exception as e:
+            decky.logger.debug(f"Error getting internal disk info: {e}")
 
         # SD card (usually mounted under /run/media/)
+        # Explicitly detect SD card mount state
         sd_mount_base = Path("/run/media")
         if sd_mount_base.exists():
             try:
                 for user_dir in sd_mount_base.iterdir():
+                    if not user_dir.is_dir():
+                        continue
                     for mount_point in user_dir.iterdir():
-                        # Check if it's a different device from root
+                        if not mount_point.is_dir():
+                            continue
+                        # Check if it's a valid mount point
                         try:
                             stat = os.statvfs(str(mount_point))
                             total = stat.f_blocks * stat.f_frsize
-                            if total > 0:
+                            # Only consider it an SD card if it has reasonable size (> 1GB)
+                            if total > 1024 ** 3:
                                 free = stat.f_bavail * stat.f_frsize
                                 used = total - free
                                 result["sd_free_gb"] = round(free / (1024 ** 3), 2)
                                 result["sd_total_gb"] = round(total / (1024 ** 3), 2)
                                 result["sd_percent_used"] = round((used / total) * 100, 1)
                                 result["sd_mounted"] = True
+                                decky.logger.debug(f"SD card detected at {mount_point}")
                                 break
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            decky.logger.debug(f"Error checking mount point {mount_point}: {e}")
                     if result["sd_mounted"]:
                         break
-            except Exception:
-                pass
+            except Exception as e:
+                decky.logger.debug(f"Error scanning SD card mounts: {e}")
 
         return result
 
@@ -598,6 +606,19 @@ class Plugin:
         self.telemetry_task = None
         self.settings = self._get_default_settings()
         self.running = False
+        
+        # Event-driven state
+        self.game_state = {
+            "is_running": False,
+            "app_id": None,
+            "app_name": None
+        }
+        self.download_state = {
+            "downloading": False,
+            "progress": None,
+            "rate_mbps": None,
+            "app_id": None
+        }
 
     def _get_default_settings(self) -> dict:
         """Get default settings."""
@@ -775,6 +796,7 @@ class Plugin:
 
         enabled = self.settings.get("enabled_sensors", {})
 
+        # Battery, disk, and network are still polled (hardware telemetry)
         if enabled.get("battery", True):
             battery_info = TelemetryCollector.get_battery_info()
             self.discovery.publish_state("battery", battery_info)
@@ -787,13 +809,9 @@ class Plugin:
             network_info = TelemetryCollector.get_network_info()
             self.discovery.publish_state("network", network_info)
 
-        if enabled.get("game", True):
-            game_info = TelemetryCollector.get_current_game()
-            self.discovery.publish_state("game", game_info)
-
-        if enabled.get("download", True):
-            download_info = TelemetryCollector.get_download_info()
-            self.discovery.publish_state("download", download_info)
+        # Game and download state are now event-driven, not polled
+        # They are published via _publish_game_state() and _publish_download_state()
+        # when events are received from the frontend
 
     async def _telemetry_loop(self):
         """Main telemetry publishing loop."""
@@ -823,9 +841,206 @@ class Plugin:
             "battery": TelemetryCollector.get_battery_info(),
             "disk": TelemetryCollector.get_disk_info(),
             "network": TelemetryCollector.get_network_info(),
-            "game": TelemetryCollector.get_current_game(),
-            "download": TelemetryCollector.get_download_info()
+            "game": self._get_game_state(),
+            "download": self._get_download_state()
         }
+
+    async def ingest_event(self, event: dict):
+        """
+        Ingest a system event from the frontend (callable from frontend).
+        
+        This is the main entry point for event-driven telemetry.
+        Events are routed to appropriate handlers based on type.
+        """
+        try:
+            event_type = event.get("type")
+            timestamp = event.get("timestamp")
+            
+            decky.logger.debug(f"Received event: {event_type} at {timestamp}")
+            
+            # Route event to appropriate handler
+            if event_type == "game_started":
+                await self._handle_game_started(event)
+            elif event_type == "game_stopped":
+                await self._handle_game_stopped(event)
+            elif event_type == "download_started":
+                await self._handle_download_started(event)
+            elif event_type == "download_progress":
+                await self._handle_download_progress(event)
+            elif event_type == "download_completed":
+                await self._handle_download_completed(event)
+            elif event_type == "download_stopped":
+                await self._handle_download_stopped(event)
+            elif event_type == "system_suspending":
+                await self._handle_system_suspending(event)
+            elif event_type == "system_resuming":
+                await self._handle_system_resuming(event)
+            elif event_type == "system_shutting_down":
+                await self._handle_system_shutting_down(event)
+            else:
+                decky.logger.warning(f"Unknown event type: {event_type}")
+                
+        except Exception as e:
+            decky.logger.error(f"Error processing event: {e}")
+
+    def _get_game_state(self) -> dict:
+        """Get current game state from event-driven data."""
+        return {
+            "game_name": self.game_state.get("app_name"),
+            "app_id": self.game_state.get("app_id"),
+            "is_running": self.game_state.get("is_running", False)
+        }
+
+    def _get_download_state(self) -> dict:
+        """Get current download state from event-driven data."""
+        return {
+            "downloading": self.download_state.get("downloading", False),
+            "download_progress": self.download_state.get("progress"),
+            "download_rate_mbps": self.download_state.get("rate_mbps"),
+            "download_app_name": None  # App name lookup could be added later
+        }
+
+    async def _handle_game_started(self, event: dict):
+        """Handle game started event."""
+        app_id = event.get("app_id")
+        decky.logger.info(f"Game started: app_id={app_id}")
+        
+        # Update state
+        self.game_state["is_running"] = True
+        self.game_state["app_id"] = app_id
+        self.game_state["app_name"] = None  # Could lookup app name from Steam API
+        
+        # Publish to MQTT
+        await self._publish_game_state()
+
+    async def _handle_game_stopped(self, event: dict):
+        """Handle game stopped event."""
+        app_id = event.get("app_id")
+        decky.logger.info(f"Game stopped: app_id={app_id}")
+        
+        # Update state
+        self.game_state["is_running"] = False
+        self.game_state["app_id"] = None
+        self.game_state["app_name"] = None
+        
+        # Publish to MQTT
+        await self._publish_game_state()
+
+    async def _handle_download_started(self, event: dict):
+        """Handle download started event."""
+        app_id = event.get("app_id")
+        decky.logger.info(f"Download started: app_id={app_id}")
+        
+        # Update state
+        self.download_state["downloading"] = True
+        self.download_state["app_id"] = app_id
+        self.download_state["progress"] = 0
+        self.download_state["rate_mbps"] = 0
+        
+        # Publish to MQTT
+        await self._publish_download_state()
+
+    async def _handle_download_progress(self, event: dict):
+        """Handle download progress event."""
+        progress = event.get("progress")
+        rate = event.get("rate")
+        
+        # Update state
+        self.download_state["downloading"] = True
+        self.download_state["progress"] = progress
+        self.download_state["rate_mbps"] = rate
+        
+        # Publish to MQTT
+        await self._publish_download_state()
+
+    async def _handle_download_completed(self, event: dict):
+        """Handle download completed event."""
+        app_id = event.get("app_id")
+        decky.logger.info(f"Download completed: app_id={app_id}")
+        
+        # Update state
+        self.download_state["downloading"] = False
+        self.download_state["progress"] = 100
+        self.download_state["rate_mbps"] = 0
+        
+        # Publish to MQTT
+        await self._publish_download_state()
+        
+        # Clear state after a brief moment
+        await asyncio.sleep(1)
+        self.download_state["progress"] = None
+        self.download_state["rate_mbps"] = None
+        self.download_state["app_id"] = None
+
+    async def _handle_download_stopped(self, event: dict):
+        """Handle download stopped event."""
+        decky.logger.info("Download stopped")
+        
+        # Update state
+        self.download_state["downloading"] = False
+        self.download_state["progress"] = None
+        self.download_state["rate_mbps"] = None
+        self.download_state["app_id"] = None
+        
+        # Publish to MQTT
+        await self._publish_download_state()
+
+    async def _handle_system_suspending(self, event: dict):
+        """Handle system suspending event."""
+        decky.logger.info("System suspending - finalizing state")
+        
+        # Finalize any active game or download state
+        if self.game_state.get("is_running"):
+            self.game_state["is_running"] = False
+            await self._publish_game_state()
+        
+        if self.download_state.get("downloading"):
+            self.download_state["downloading"] = False
+            await self._publish_download_state()
+
+    async def _handle_system_resuming(self, event: dict):
+        """Handle system resuming event."""
+        decky.logger.info("System resuming - resetting transient state")
+        
+        # Reset transient state (game and download state will be re-established by events)
+        # Just ensure we're in a clean state
+        pass
+
+    async def _handle_system_shutting_down(self, event: dict):
+        """Handle system shutting down event."""
+        decky.logger.info("System shutting down - flushing state")
+        
+        # Flush state and mark sensors unavailable
+        self.game_state["is_running"] = False
+        self.game_state["app_id"] = None
+        self.download_state["downloading"] = False
+        
+        await self._publish_game_state()
+        await self._publish_download_state()
+
+    async def _publish_game_state(self):
+        """Publish game state to MQTT."""
+        if not self.mqtt_client.connected or not self.discovery:
+            return
+            
+        if not self.settings.get("enabled_sensors", {}).get("game", True):
+            return
+            
+        game_info = self._get_game_state()
+        self.discovery.publish_state("game", game_info)
+        decky.logger.debug(f"Published game state: {game_info}")
+
+    async def _publish_download_state(self):
+        """Publish download state to MQTT."""
+        if not self.mqtt_client.connected or not self.discovery:
+            return
+            
+        if not self.settings.get("enabled_sensors", {}).get("download", True):
+            return
+            
+        download_info = self._get_download_state()
+        self.discovery.publish_state("download", download_info)
+        decky.logger.debug(f"Published download state: {download_info}")
 
     async def _main(self):
         """Main plugin entry point."""
