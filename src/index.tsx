@@ -16,6 +16,7 @@ import {
 import { useState, useEffect, FC } from "react";
 import { FaHome } from "react-icons/fa";
 import TextInputModal from "./components/TextInputModal";
+import { systemEventManager } from "./app/system";
 
 // Backend API calls
 const getSettings = callable<[], Settings>("get_settings");
@@ -580,6 +581,9 @@ function Content() {
 export default definePlugin(() => {
   console.log("Home Assistant MQTT plugin initializing");
 
+  // Initialize system event manager
+  systemEventManager.initialize();
+
   return {
     name: "Home Assistant MQTT",
     titleView: <div className={staticClasses.Title}>Home Assistant MQTT</div>,
@@ -587,6 +591,8 @@ export default definePlugin(() => {
     icon: <FaHome />,
     onDismount() {
       console.log("Home Assistant MQTT plugin unloading");
+      // Clean up event subscriptions
+      systemEventManager.cleanup();
     },
   };
 });
