@@ -29,6 +29,10 @@ SETTINGS_FILE = "settings.json"
 MQTT_DISCOVERY_PREFIX = "homeassistant"
 STATE_TOPIC_PREFIX = "steamdeck"
 
+# Telemetry constants
+MIN_SD_CARD_SIZE_BYTES = 1024 ** 3  # 1 GB minimum to be considered an SD card
+DOWNLOAD_COMPLETION_DELAY_SECONDS = 1  # Brief delay before clearing completed download state
+
 
 def get_default_hostname() -> str:
     """Get the Steam Deck hostname, defaulting to 'steamdeck' if unavailable."""
@@ -248,10 +252,12 @@ class TelemetryCollector:
             "sd_mounted": False
         }
 
-        # Internal storage - use /home mount point instead of /
-        # This gives a more accurate representation of user-available storage
+        # Internal storage - prefer /home mount point for user storage, fall back to /
+        # Check if /home is a separate mount point or use root if not
+        internal_path = "/home"
         try:
-            stat = os.statvfs("/home")
+            # Check if /home exists and is accessible
+            stat = os.statvfs(internal_path)
             total = stat.f_blocks * stat.f_frsize
             free = stat.f_bavail * stat.f_frsize
             used = total - free
@@ -259,7 +265,18 @@ class TelemetryCollector:
             result["internal_total_gb"] = round(total / (1024 ** 3), 2)
             result["internal_percent_used"] = round((used / total) * 100, 1) if total > 0 else 0
         except Exception as e:
-            decky.logger.debug(f"Error getting internal disk info: {e}")
+            decky.logger.debug(f"Error getting disk info from {internal_path}, falling back to /: {e}")
+            # Fall back to root filesystem
+            try:
+                stat = os.statvfs("/")
+                total = stat.f_blocks * stat.f_frsize
+                free = stat.f_bavail * stat.f_frsize
+                used = total - free
+                result["internal_free_gb"] = round(free / (1024 ** 3), 2)
+                result["internal_total_gb"] = round(total / (1024 ** 3), 2)
+                result["internal_percent_used"] = round((used / total) * 100, 1) if total > 0 else 0
+            except Exception as e2:
+                decky.logger.error(f"Error getting internal disk info: {e2}")
 
         # SD card (usually mounted under /run/media/)
         # Explicitly detect SD card mount state
@@ -276,8 +293,8 @@ class TelemetryCollector:
                         try:
                             stat = os.statvfs(str(mount_point))
                             total = stat.f_blocks * stat.f_frsize
-                            # Only consider it an SD card if it has reasonable size (> 1GB)
-                            if total > 1024 ** 3:
+                            # Only consider it an SD card if it has reasonable size
+                            if total > MIN_SD_CARD_SIZE_BYTES:
                                 free = stat.f_bavail * stat.f_frsize
                                 used = total - free
                                 result["sd_free_gb"] = round(free / (1024 ** 3), 2)
@@ -998,7 +1015,7 @@ class Plugin:
         await self._publish_download_state()
         
         # Clear state after a brief moment
-        await asyncio.sleep(1)
+        await asyncio.sleep(DOWNLOAD_COMPLETION_DELAY_SECONDS)
         self.download_state["progress"] = None
         self.download_state["rate_mbps"] = None
         self.download_state["app_id"] = None
