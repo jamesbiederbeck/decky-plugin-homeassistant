@@ -405,13 +405,28 @@ class HomeAssistantDiscovery:
         topic = f"{MQTT_DISCOVERY_PREFIX}/{component}/{self.hostname}_{object_id}/config"
         config["device"] = self.get_device_info()
         config["unique_id"] = f"steamdeck_{self.hostname}_{object_id}"
+        
+        # Add availability topic - sensors are available when plugin is connected
+        status_topic = self.mqtt_client.status_topic
+        if status_topic:
+            config["availability_topic"] = status_topic
+            config["payload_available"] = "online"
+            config["payload_not_available"] = "offline"
+        
         payload = json.dumps(config)
         self.mqtt_client.publish(topic, payload, retain=True)
 
-    def publish_state(self, sensor_type: str, payload: dict):
-        """Publish state data to a topic."""
+    def publish_state(self, sensor_type: str, payload: dict, retain: bool = False):
+        """
+        Publish state data to a topic.
+        
+        Args:
+            sensor_type: Type of sensor (battery, disk, network, game, download)
+            payload: State data as dictionary
+            retain: Whether to retain the message (use True for persistent state like battery/disk)
+        """
         topic = f"{STATE_TOPIC_PREFIX}/{self.hostname}/telemetry/{sensor_type}"
-        self.mqtt_client.publish(topic, json.dumps(payload), retain=False)
+        self.mqtt_client.publish(topic, json.dumps(payload), retain=retain)
 
     def register_battery_sensors(self):
         """Register battery-related sensors with Home Assistant."""
@@ -797,17 +812,18 @@ class Plugin:
         enabled = self.settings.get("enabled_sensors", {})
 
         # Battery, disk, and network are still polled (hardware telemetry)
+        # Use retain=True for these persistent hardware states
         if enabled.get("battery", True):
             battery_info = TelemetryCollector.get_battery_info()
-            self.discovery.publish_state("battery", battery_info)
+            self.discovery.publish_state("battery", battery_info, retain=True)
 
         if enabled.get("disk", True):
             disk_info = TelemetryCollector.get_disk_info()
-            self.discovery.publish_state("disk", disk_info)
+            self.discovery.publish_state("disk", disk_info, retain=True)
 
         if enabled.get("network", True):
             network_info = TelemetryCollector.get_network_info()
-            self.discovery.publish_state("network", network_info)
+            self.discovery.publish_state("network", network_info, retain=True)
 
         # Game and download state are now event-driven, not polled
         # They are published via _publish_game_state() and _publish_download_state()
@@ -903,6 +919,11 @@ class Plugin:
     async def _handle_game_started(self, event: dict):
         """Handle game started event."""
         app_id = event.get("app_id")
+        
+        # Detect unexpected event sequence
+        if self.game_state.get("is_running"):
+            decky.logger.warning(f"Received game_started for app_id={app_id} but game is already running (current={self.game_state.get('app_id')})")
+        
         decky.logger.info(f"Game started: app_id={app_id}")
         
         # Update state
@@ -916,6 +937,11 @@ class Plugin:
     async def _handle_game_stopped(self, event: dict):
         """Handle game stopped event."""
         app_id = event.get("app_id")
+        
+        # Detect unexpected event sequence
+        if not self.game_state.get("is_running"):
+            decky.logger.warning(f"Received game_stopped for app_id={app_id} but no game is running")
+        
         decky.logger.info(f"Game stopped: app_id={app_id}")
         
         # Update state
@@ -929,6 +955,11 @@ class Plugin:
     async def _handle_download_started(self, event: dict):
         """Handle download started event."""
         app_id = event.get("app_id")
+        
+        # Detect unexpected event sequence
+        if self.download_state.get("downloading"):
+            decky.logger.warning(f"Received download_started for app_id={app_id} but download is already active")
+        
         decky.logger.info(f"Download started: app_id={app_id}")
         
         # Update state
@@ -1027,7 +1058,8 @@ class Plugin:
             return
             
         game_info = self._get_game_state()
-        self.discovery.publish_state("game", game_info)
+        # Don't retain game state - it's transient and event-driven
+        self.discovery.publish_state("game", game_info, retain=False)
         decky.logger.debug(f"Published game state: {game_info}")
 
     async def _publish_download_state(self):
@@ -1039,7 +1071,8 @@ class Plugin:
             return
             
         download_info = self._get_download_state()
-        self.discovery.publish_state("download", download_info)
+        # Don't retain download state - it's transient and event-driven
+        self.discovery.publish_state("download", download_info, retain=False)
         decky.logger.debug(f"Published download state: {download_info}")
 
     async def _main(self):
