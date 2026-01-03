@@ -252,8 +252,9 @@ class TelemetryCollector:
             "sd_mounted": False
         }
 
-        # Internal storage - prefer /home mount point for user storage, fall back to /
-        # Check if /home is a separate mount point or use root if not
+        # Internal storage - prefer /home for Steam Deck user storage
+        # On Steam Deck, /home is typically more representative of user-available space
+        # Fall back to / if /home is not accessible
         internal_path = "/home"
         try:
             # Check if /home exists and is accessible
@@ -1014,11 +1015,15 @@ class Plugin:
         # Publish to MQTT
         await self._publish_download_state()
         
-        # Clear state after a brief moment
-        await asyncio.sleep(DOWNLOAD_COMPLETION_DELAY_SECONDS)
-        self.download_state["progress"] = None
-        self.download_state["rate_mbps"] = None
-        self.download_state["app_id"] = None
+        # Clear state after a brief moment (allow cancellation)
+        try:
+            await asyncio.sleep(DOWNLOAD_COMPLETION_DELAY_SECONDS)
+            self.download_state["progress"] = None
+            self.download_state["rate_mbps"] = None
+            self.download_state["app_id"] = None
+        except asyncio.CancelledError:
+            # Allow graceful cancellation during shutdown
+            pass
 
     async def _handle_download_stopped(self, event: dict):
         """Handle download stopped event."""
