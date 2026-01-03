@@ -36,6 +36,35 @@ export interface SystemEvent {
   downloading?: boolean;
 }
 
+// Steam runtime event interfaces
+interface AppLifetimeNotification {
+  unAppID: number;
+  nInstanceID: number;
+  bRunning: boolean;
+}
+
+interface DownloadItem {
+  active: boolean;
+  appid: number;
+  completed: boolean;
+  downloaded_bytes: number;
+  total_bytes: number;
+  paused: boolean;
+}
+
+interface DownloadOverview {
+  update_appid: number;
+  update_bytes_downloaded: number;
+  update_bytes_to_download: number;
+  update_network_bytes_per_second: number;
+  update_state: string;
+}
+
+interface SuspendProgress {
+  // Steam suspend progress data structure
+  [key: string]: any;
+}
+
 // Frontend state to suppress duplicate events
 interface SystemState {
   currentAppId: number | null;
@@ -197,7 +226,7 @@ class SystemEventManager {
   /**
    * Handle game lifetime events (game started/stopped).
    */
-  private handleGameLifetimeEvent(notification: any) {
+  private handleGameLifetimeEvent(notification: AppLifetimeNotification) {
     const appId = notification.unAppID;
     const isRunning = notification.bRunning;
 
@@ -231,15 +260,15 @@ class SystemEventManager {
   /**
    * Handle download items events (download queue state).
    */
-  private handleDownloadItemsEvent(isDownloading: boolean, downloadItems: any[]) {
+  private handleDownloadItemsEvent(isDownloading: boolean, downloadItems: DownloadItem[]) {
     console.debug("[SystemEvents] Download items event:", { isDownloading, count: downloadItems.length });
 
     // Check for state changes
     const wasDownloading = this.state.isDownloading;
     this.state.isDownloading = isDownloading;
 
-    // Find active download
-    const activeDownload = downloadItems.find(item => item.active);
+    // Find active download (with defensive checks)
+    const activeDownload = downloadItems.find(item => item && item.active);
     const currentDownloadAppId = activeDownload?.appid || null;
 
     // Download started
@@ -259,8 +288,8 @@ class SystemEventManager {
     else if (!isDownloading && wasDownloading) {
       console.log("[SystemEvents] Download stopped/completed");
       
-      // Check if any downloads are completed
-      const hasCompleted = downloadItems.some(item => item.completed);
+      // Check if any downloads are completed (with defensive checks)
+      const hasCompleted = downloadItems.some(item => item && item.completed);
       
       const event: SystemEvent = {
         type: hasCompleted ? "download_completed" : "download_stopped",
@@ -289,7 +318,7 @@ class SystemEventManager {
   /**
    * Handle download overview events (progress/rate).
    */
-  private handleDownloadOverviewEvent(overview: any) {
+  private handleDownloadOverviewEvent(overview: DownloadOverview) {
     if (!this.state.isDownloading) {
       return;
     }
@@ -325,7 +354,7 @@ class SystemEventManager {
   /**
    * Handle system suspend events.
    */
-  private handleSystemSuspendEvent(progress: any) {
+  private handleSystemSuspendEvent(progress: SuspendProgress) {
     console.log("[SystemEvents] System suspending:", progress);
     
     const event: SystemEvent = {
@@ -339,7 +368,7 @@ class SystemEventManager {
   /**
    * Handle system resume events.
    */
-  private handleSystemResumeEvent(progress: any) {
+  private handleSystemResumeEvent(progress: SuspendProgress) {
     console.log("[SystemEvents] System resuming:", progress);
     
     const event: SystemEvent = {
@@ -353,7 +382,7 @@ class SystemEventManager {
   /**
    * Handle system shutdown events.
    */
-  private handleSystemShutdownEvent(param0: any) {
+  private handleSystemShutdownEvent(param0: boolean) {
     console.log("[SystemEvents] System shutting down:", param0);
     
     const event: SystemEvent = {
