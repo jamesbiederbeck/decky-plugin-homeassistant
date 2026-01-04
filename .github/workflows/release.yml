@@ -131,10 +131,8 @@ jobs:
           # Delete existing stable release if it exists
           gh release delete stable -y || true
           
-          # Create new stable release
-          gh release create stable \
-            --title "Stable Release" \
-            --notes "This is the latest stable release.
+          # Create new stable release with properly quoted notes
+          NOTES="This is the latest stable release.
 
           **Current Version:** v${VERSION}
 
@@ -146,7 +144,11 @@ jobs:
           curl -sSL https://raw.githubusercontent.com/jamesbiederbeck/decky-plugin-homeassistant/main/install-plugin.sh | bash -s -- https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/stable/decky-plugin-homeassistant-stable.zip
           \`\`\`
 
-          Or download the zip manually and extract it to \`~/homebrew/plugins/\`." \
+          Or download the zip manually and extract it to \`~/homebrew/plugins/\`."
+          
+          gh release create stable \
+            --title "Stable Release" \
+            --notes "$NOTES" \
             "decky-plugin-homeassistant-v${VERSION}.zip#decky-plugin-homeassistant-stable.zip"
       
       - name: Create GitHub Release

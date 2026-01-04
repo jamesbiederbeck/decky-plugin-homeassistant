@@ -95,10 +95,8 @@ jobs:
           BRANCH="${{ steps.metadata.outputs.branch }}"
           COMMIT_SHA="${{ steps.metadata.outputs.commit_sha }}"
           
-          gh release create preview \
-            --title "Preview Release" \
-            --prerelease \
-            --notes "⚠️ **Warning:** This is an unstable preview release for testing purposes.
+          # Create properly quoted notes
+          NOTES="⚠️ **Warning:** This is an unstable preview release for testing purposes.
 
           **Version:** $VERSION
           **Branch:** $BRANCH
@@ -114,5 +112,10 @@ jobs:
           curl -sSL https://raw.githubusercontent.com/jamesbiederbeck/decky-plugin-homeassistant/main/install-plugin.sh | bash -s -- https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/preview/decky-plugin-homeassistant-preview.zip
           \`\`\`
 
-          Or download the zip manually and extract it to \`~/homebrew/plugins/\`." \
+          Or download the zip manually and extract it to \`~/homebrew/plugins/\`."
+          
+          gh release create preview \
+            --title "Preview Release" \
+            --prerelease \
+            --notes "$NOTES" \
             decky-plugin-homeassistant-preview.zip
