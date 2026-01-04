@@ -115,7 +115,7 @@ jobs:
           
           # Delete existing stable tag if it exists
           git tag -d stable || true
-          git push origin :refs/tags/stable || true
+          git push origin --delete stable || true
           
           # Create new stable tag
           git tag -a stable -m "Stable release: v${VERSION}"
