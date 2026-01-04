@@ -168,7 +168,8 @@ jobs:
             curl -sSL https://raw.githubusercontent.com/jamesbiederbeck/decky-plugin-homeassistant/main/install-plugin.sh | bash -s -- https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/${{ steps.version.outputs.tag }}/decky-plugin-homeassistant-v${{ steps.version.outputs.version }}.zip
             ```
             
-            Or download the zip manually and extract it to `~/homebrew/plugins/`.
+            Or download the zip manually and extract it to `~/homebrew/plugins/`, but you'll have to fix permissions. Probably better to just use the zip download, and paste in this URL:
+            https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/${{ steps.version.outputs.tag }}/decky-plugin-homeassistant-v${{ steps.version.outputs.version }}.zip
           files: |
             decky-plugin-homeassistant-v${{ steps.version.outputs.version }}.zip
           draft: false
