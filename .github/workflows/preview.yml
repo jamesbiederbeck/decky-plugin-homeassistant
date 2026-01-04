@@ -1,0 +1,121 @@
+name: Preview Release
+
+on:
+  push:
+    tags:
+      - preview
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Extract version and metadata
+        id: metadata
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          BRANCH=$(git rev-parse --abbrev-ref HEAD || echo "detached")
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          echo "Version extracted: $VERSION"
+          echo "Branch: $BRANCH"
+          echo "Commit SHA: $COMMIT_SHA"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      
+      - name: Install dependencies
+        run: pnpm install
+      
+      - name: Build plugin
+        run: |
+          echo "Building plugin..."
+          pnpm run build
+          echo "Build completed"
+          ls -la dist/
+      
+      - name: Create zip file
+        run: |
+          ZIP_NAME="decky-plugin-homeassistant-preview.zip"
+          
+          echo "Creating zip file: $ZIP_NAME"
+          
+          # Create temporary directory for zip structure
+          mkdir -p temp_zip/decky-plugin-homeassistant
+          
+          # Copy required files and directories
+          cp -r dist temp_zip/decky-plugin-homeassistant/
+          cp -r py_modules temp_zip/decky-plugin-homeassistant/
+          cp package.json temp_zip/decky-plugin-homeassistant/
+          cp plugin.json temp_zip/decky-plugin-homeassistant/
+          cp main.py temp_zip/decky-plugin-homeassistant/
+          cp LICENSE temp_zip/decky-plugin-homeassistant/
+          cp README.md temp_zip/decky-plugin-homeassistant/
+          
+          # Create zip from temp directory
+          cd temp_zip
+          zip -r "../$ZIP_NAME" decky-plugin-homeassistant
+          cd ..
+          
+          echo "Zip file created successfully"
+          ls -lh "$ZIP_NAME"
+          
+          # Verify zip contents
+          echo "Verifying zip contents:"
+          unzip -l "$ZIP_NAME"
+      
+      - name: Delete existing preview release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete preview -y || true
+      
+      - name: Create preview GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.metadata.outputs.version }}"
+          BRANCH="${{ steps.metadata.outputs.branch }}"
+          COMMIT_SHA="${{ steps.metadata.outputs.commit_sha }}"
+          
+          # Create properly quoted notes
+          NOTES="⚠️ **Warning:** This is an unstable preview release for testing purposes.
+
+          **Version:** $VERSION
+          **Branch:** $BRANCH
+          **Commit:** $COMMIT_SHA
+
+          This preview build may contain experimental features and bugs. Use at your own risk.
+
+          ## Installation
+
+          Download the zip file and use the installation script:
+
+          \`\`\`bash
+          curl -sSL https://raw.githubusercontent.com/jamesbiederbeck/decky-plugin-homeassistant/main/install-plugin.sh | bash -s -- https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/preview/decky-plugin-homeassistant-preview.zip
+          \`\`\`
+
+          Or download the zip manually and extract it to \`~/homebrew/plugins/\`."
+          
+          gh release create preview \
+            --title "Preview Release" \
+            --prerelease \
+            --notes "$NOTES" \
+            decky-plugin-homeassistant-preview.zip
