@@ -106,6 +106,49 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
       
+      - name: Update stable tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Delete existing stable tag if it exists
+          git tag -d stable || true
+          git push origin :refs/tags/stable || true
+          
+          # Create new stable tag
+          git tag -a stable -m "Stable release: v${VERSION}"
+          git push origin stable
+      
+      - name: Update stable release
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Delete existing stable release if it exists
+          gh release delete stable -y || true
+          
+          # Create new stable release
+          gh release create stable \
+            --title "Stable Release" \
+            --notes "This is the latest stable release.
+
+          **Current Version:** v${VERSION}
+
+          ## Installation
+
+          Download the zip file and use the installation script:
+
+          \`\`\`bash
+          curl -sSL https://raw.githubusercontent.com/jamesbiederbeck/decky-plugin-homeassistant/main/install-plugin.sh | bash -s -- https://github.com/jamesbiederbeck/decky-plugin-homeassistant/releases/download/stable/decky-plugin-homeassistant-stable.zip
+          \`\`\`
+
+          Or download the zip manually and extract it to \`~/homebrew/plugins/\`." \
+            "decky-plugin-homeassistant-v${VERSION}.zip#decky-plugin-homeassistant-stable.zip"
+      
       - name: Create GitHub Release
         if: steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v1
