@@ -155,7 +155,8 @@ class Plugin:
                 # Initialize discovery and register sensors
                 self.discovery = HomeAssistantDiscovery(
                     self.mqtt_client,
-                    hostname
+                    hostname,
+                    clear_state_on_suspend=self.settings.get("clear_state_on_suspend", True)
                 )
                 await self._register_sensors()
                 decky.logger.info("MQTT connected and sensors registered")
