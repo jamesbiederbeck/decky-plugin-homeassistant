@@ -10,13 +10,30 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin that 
 
 ## Features
 
+- **Event-Driven Telemetry**: Game and download sensors update immediately via Steam runtime events
 - **Battery Monitoring**: Battery percentage, charging status, and time remaining
-- **Disk Usage**: Internal storage and SD card space monitoring
-- **Network Information**: WiFi and Ethernet IP addresses
-- **Game Detection**: Current running game/app information
-- **Download Status**: Steam download progress and rate
+- **Disk Usage**: Internal storage (from /home mount) and SD card space monitoring
+- **Network Information**: WiFi and Ethernet IP addresses distinguished by interface
+- **Game Detection**: Real-time game start/stop detection with instant sensor updates
+- **Download Status**: Real-time Steam download progress and rate tracking
 - **MQTT Discovery**: Automatic device and sensor registration in Home Assistant
+- **Availability Tracking**: Sensors automatically marked unavailable when plugin disconnects
 - **Configurable**: Enable/disable individual sensors, customize hostname, adjust publish interval
+
+## Architecture
+
+The plugin now uses an **event-driven architecture** for game and download telemetry:
+
+- **Frontend**: Subscribes to Steam runtime events (game lifecycle, downloads, system suspend/resume)
+- **Backend**: Processes events and maintains authoritative state
+- **MQTT**: Publishes state changes immediately when events occur
+
+This eliminates polling delays and ensures Home Assistant sensors update instantly when:
+- A game starts or stops
+- A download begins, progresses, or completes
+- The system suspends or resumes
+
+Hardware telemetry (battery, disk, network) is still polled at the configured interval since it represents physical state that changes gradually.
 
 ## Sensors
 
@@ -146,13 +163,31 @@ Enable or disable individual sensor categories:
 1. **Save Settings**: After configuring, click **Save** to persist your settings
 2. **Test Connection**: Click **Test** to verify MQTT broker connectivity
 3. **Connect**: Click **Connect** to establish the MQTT connection
-4. **Publish Now**: Manually trigger a telemetry publish
+4. **Publish Now**: Manually trigger a telemetry publish (hardware sensors only)
 5. **View Current Telemetry**: See the current sensor values
 
 The plugin will automatically:
 - Connect to MQTT on startup (if configured)
 - Register sensors with Home Assistant via MQTT Discovery
-- Publish telemetry at the configured interval
+- Subscribe to Steam runtime events for instant game and download updates
+- Publish hardware telemetry (battery, disk, network) at the configured interval
+- Publish game and download state immediately when events occur
+
+### Event-Driven Sensors
+
+The following sensors update **immediately** when events occur (no polling delay):
+- **Game Running**: Updates when a game starts or stops
+- **Current App ID**: Updates when game changes
+- **Downloading**: Updates when a download starts or stops
+- **Download Progress**: Updates in real-time during downloads
+- **Download Rate**: Updates with current download speed
+
+### Polled Sensors
+
+The following sensors update at the configured **publish interval** (default 30 seconds):
+- **Battery**: Percentage, charging status, time remaining
+- **Disk**: Internal and SD card storage
+- **Network**: IP addresses
 
 ## MQTT Topics
 
@@ -163,14 +198,28 @@ The plugin uses the following topic structure:
 homeassistant/<component>/<hostname>_<sensor>/config
 ```
 
+All sensors include an availability topic that marks them unavailable when the plugin disconnects.
+
 ### State Topics
+
+**Hardware telemetry (retained, polled):**
 ```
 steamdeck/<hostname>/telemetry/battery
 steamdeck/<hostname>/telemetry/disk
 steamdeck/<hostname>/telemetry/network
+```
+
+**Event-driven telemetry (non-retained, immediate):**
+```
 steamdeck/<hostname>/telemetry/game
 steamdeck/<hostname>/telemetry/download
 ```
+
+### Status Topic (retained)
+```
+steamdeck/<hostname>/status
+```
+Payload: `online` or `offline` (Last Will message)
 
 ### Example Payloads
 
@@ -218,6 +267,22 @@ automation:
           message: "Battery at {{ states('sensor.steamdeck_steamdeck_battery_percent') }}%"
 ```
 
+Example automation using event-driven game sensor:
+
+```yaml
+automation:
+  - alias: "Steam Deck Game Started"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.steamdeck_steamdeck_game_running
+        to: "on"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Game Started"
+          message: "Playing App ID {{ states('sensor.steamdeck_steamdeck_current_appid') }}"
+```
+
 Example to turn on a smart plug when Steam Deck is charging:
 
 ```yaml
@@ -247,6 +312,17 @@ automation:
 - Try disconnecting and reconnecting from the plugin
 - Check Home Assistant logs for MQTT-related errors
 
+### Game/Download sensors not updating
+- Check browser console for event subscription errors (press F12 in Steam Deck gaming mode)
+- Verify the plugin initialized successfully (check logs)
+- Game and download sensors update via events, not polling - they should update instantly
+- Try restarting the plugin or Steam client
+
+### Sensors showing as "unavailable"
+- Check that the plugin is connected to MQTT (status badge should show green)
+- Verify the Steam Deck status sensor shows "online" in Home Assistant
+- Sensors are marked unavailable when plugin disconnects
+
 ### Battery time remaining shows "unavailable"
 - This sensor depends on power draw data which may not always be available
 - It's normal for this to be unavailable when plugged in or when the system can't calculate the estimate
@@ -254,6 +330,11 @@ automation:
 ### SD card not detected
 - The SD card must be mounted at `/run/media/...`
 - Try removing and reinserting the SD card
+- SD cards must be larger than 1GB to be detected
+
+### Internal disk showing wrong size
+- The plugin now reads from `/home` mount point for more accurate user storage
+- This reflects the actual user-available space on Steam Deck
 
 ## Development
 

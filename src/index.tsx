@@ -16,6 +16,7 @@ import {
 import { useState, useEffect, FC } from "react";
 import { FaHome } from "react-icons/fa";
 import TextInputModal from "./components/TextInputModal";
+import { systemEventManager } from "./app/system";
 
 // Backend API calls
 const getSettings = callable<[], Settings>("get_settings");
@@ -44,6 +45,7 @@ interface Settings {
   hostname: string;
   publish_interval: number;
   enabled_sensors: EnabledSensors;
+  clear_state_on_suspend?: boolean;
   connected?: boolean;
 }
 
@@ -494,26 +496,36 @@ function Content() {
           />
         </PanelSectionRow>
         {showAdvanced && (
-          <PanelSectionRow>
-            <ButtonItem
-              layout="below"
-              onClick={() => {
-                showModal(
-                  <TextInputModal
-                    title="Publish Interval"
-                    description="How often to publish telemetry data (in seconds, minimum 5)"
-                    initialValue={String(settings.publish_interval)}
-                    onConfirm={(value) => {
-                      const parsed = parseInt(value);
-                      updateSetting("publish_interval", isNaN(parsed) ? 30 : Math.max(5, parsed));
-                    }}
-                  />
-                );
-              }}
-            >
-              Publish Interval: {settings.publish_interval}s
-            </ButtonItem>
-          </PanelSectionRow>
+          <>
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                onClick={() => {
+                  showModal(
+                    <TextInputModal
+                      title="Publish Interval"
+                      description="How often to publish telemetry data (in seconds, minimum 5)"
+                      initialValue={String(settings.publish_interval)}
+                      onConfirm={(value) => {
+                        const parsed = parseInt(value);
+                        updateSetting("publish_interval", isNaN(parsed) ? 30 : Math.max(5, parsed));
+                      }}
+                    />
+                  );
+                }}
+              >
+                Publish Interval: {settings.publish_interval}s
+              </ButtonItem>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="Clear State on Suspend"
+                description="Clear game/download state when system suspends. When off, state is preserved during suspend."
+                checked={settings.clear_state_on_suspend ?? false}
+                onChange={(value) => updateSetting("clear_state_on_suspend", value)}
+              />
+            </PanelSectionRow>
+          </>
         )}
       </PanelSection>
 
@@ -580,6 +592,9 @@ function Content() {
 export default definePlugin(() => {
   console.log("Home Assistant MQTT plugin initializing");
 
+  // Initialize system event manager
+  systemEventManager.initialize();
+
   return {
     name: "Home Assistant MQTT",
     titleView: <div className={staticClasses.Title}>Home Assistant MQTT</div>,
@@ -587,6 +602,8 @@ export default definePlugin(() => {
     icon: <FaHome />,
     onDismount() {
       console.log("Home Assistant MQTT plugin unloading");
+      // Clean up event subscriptions
+      systemEventManager.cleanup();
     },
   };
 });

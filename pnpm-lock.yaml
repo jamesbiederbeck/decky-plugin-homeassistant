@@ -24,7 +24,7 @@ importers:
       '@decky/ui':
         specifier: ^4.11.0
         version: 4.11.0
-      '@rollup/rollup-linux-x64-musl':
+      '@rollup/rollup-linux-x64-gnu':
         specifier: ^4.53.3
         version: 4.53.3
       '@types/react':
@@ -1103,10 +1103,10 @@ snapshots:
   '@rollup/rollup-linux-s390x-gnu@4.53.3':
     optional: true
 
-  '@rollup/rollup-linux-x64-gnu@4.53.3':
-    optional: true
+  '@rollup/rollup-linux-x64-gnu@4.53.3': {}
 
-  '@rollup/rollup-linux-x64-musl@4.53.3': {}
+  '@rollup/rollup-linux-x64-musl@4.53.3':
+    optional: true
 
   '@rollup/rollup-openharmony-arm64@4.53.3':
     optional: true
