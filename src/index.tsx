@@ -45,6 +45,7 @@ interface Settings {
   hostname: string;
   publish_interval: number;
   enabled_sensors: EnabledSensors;
+  clear_state_on_suspend?: boolean;
   connected?: boolean;
 }
 
@@ -495,26 +496,36 @@ function Content() {
           />
         </PanelSectionRow>
         {showAdvanced && (
-          <PanelSectionRow>
-            <ButtonItem
-              layout="below"
-              onClick={() => {
-                showModal(
-                  <TextInputModal
-                    title="Publish Interval"
-                    description="How often to publish telemetry data (in seconds, minimum 5)"
-                    initialValue={String(settings.publish_interval)}
-                    onConfirm={(value) => {
-                      const parsed = parseInt(value);
-                      updateSetting("publish_interval", isNaN(parsed) ? 30 : Math.max(5, parsed));
-                    }}
-                  />
-                );
-              }}
-            >
-              Publish Interval: {settings.publish_interval}s
-            </ButtonItem>
-          </PanelSectionRow>
+          <>
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                onClick={() => {
+                  showModal(
+                    <TextInputModal
+                      title="Publish Interval"
+                      description="How often to publish telemetry data (in seconds, minimum 5)"
+                      initialValue={String(settings.publish_interval)}
+                      onConfirm={(value) => {
+                        const parsed = parseInt(value);
+                        updateSetting("publish_interval", isNaN(parsed) ? 30 : Math.max(5, parsed));
+                      }}
+                    />
+                  );
+                }}
+              >
+                Publish Interval: {settings.publish_interval}s
+              </ButtonItem>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="Clear State on Suspend"
+                description="Clear game/download state when system suspends. When off, state is preserved during suspend."
+                checked={settings.clear_state_on_suspend ?? false}
+                onChange={(value) => updateSetting("clear_state_on_suspend", value)}
+              />
+            </PanelSectionRow>
+          </>
         )}
       </PanelSection>
 

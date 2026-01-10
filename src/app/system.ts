@@ -130,6 +130,68 @@ class SystemEventManager {
   }
 
   /**
+   * Refresh current state from Steam client.
+   * Called on resume to check if games/downloads are still active.
+   */
+  public async refreshState() {
+    console.log("[SystemEvents] Refreshing state from Steam client");
+    
+    try {
+      // Check for active game actions
+      if (typeof SteamClient !== "undefined" && SteamClient.Apps) {
+        const activeActions = await SteamClient.Apps.GetActiveGameActions();
+        console.log("[SystemEvents] Active game actions:", activeActions);
+        
+        // If there are active games, emit appropriate events
+        if (activeActions && activeActions.length > 0) {
+          for (const action of activeActions) {
+            // Check if this is a running game (not installing/updating)
+            const appIdStr = action.gameid;
+            const appId = parseInt(appIdStr);
+            
+            if (!isNaN(appId) && appId > 0) {
+              // If we don't already have this as running, emit a game_started event
+              if (!this.state.isGameRunning || this.state.currentAppId !== appId) {
+                console.log("[SystemEvents] Found running game on resume:", appId);
+                const event: SystemEvent = {
+                  type: "game_started",
+                  timestamp: Date.now(),
+                  app_id: appId,
+                };
+                this.emitEvent(event);
+                
+                // Update our state
+                this.state.isGameRunning = true;
+                this.state.currentAppId = appId;
+              }
+            }
+          }
+        } else {
+          // No active games - if we thought one was running, emit game_stopped
+          if (this.state.isGameRunning) {
+            console.log("[SystemEvents] No running games found on resume, clearing state");
+            const event: SystemEvent = {
+              type: "game_stopped",
+              timestamp: Date.now(),
+              app_id: this.state.currentAppId || undefined,
+            };
+            this.emitEvent(event);
+            
+            this.state.isGameRunning = false;
+            this.state.currentAppId = null;
+          }
+        }
+      }
+      
+      // Note: Download state will be refreshed automatically by the download event listeners
+      // which are still active and will emit events if downloads are in progress
+      
+    } catch (error) {
+      console.error("[SystemEvents] Error refreshing state:", error);
+    }
+  }
+
+  /**
    * Subscribe to game lifecycle events.
    */
   private subscribeToGameEvents() {
@@ -377,6 +439,11 @@ class SystemEventManager {
     };
 
     this.emitEvent(event);
+    
+    // Refresh state from Steam client after a brief delay to let Steam initialize
+    setTimeout(() => {
+      this.refreshState();
+    }, 2000);  // 2 second delay to ensure Steam is ready
   }
 
   /**

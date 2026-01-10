@@ -36,6 +36,7 @@ class Plugin:
         self.telemetry_task = None
         self.settings = self._get_default_settings()
         self.running = False
+        self.is_suspended = False  # Track suspend state
         
         # Event-driven state
         self.game_state = {
@@ -49,6 +50,9 @@ class Plugin:
             "rate_mbps": None,
             "app_id": None
         }
+        # State before suspend (for restoration)
+        self.pre_suspend_game_state = None
+        self.pre_suspend_download_state = None
 
     def _get_default_settings(self) -> dict:
         """Get default settings."""
@@ -65,7 +69,8 @@ class Plugin:
                 "network": True,
                 "game": True,
                 "download": True
-            }
+            },
+            "clear_state_on_suspend": False  # Keep state during suspend by default
         }
 
     def _get_settings_path(self) -> Path:
@@ -437,24 +442,53 @@ class Plugin:
 
     async def _handle_system_suspending(self, event: dict):
         """Handle system suspending event."""
-        decky.logger.info("System suspending - finalizing state")
+        decky.logger.info("System suspending")
         
-        # Finalize any active game or download state
-        if self.game_state.get("is_running"):
-            self.game_state["is_running"] = False
-            await self._publish_game_state()
+        self.is_suspended = True
         
-        if self.download_state.get("downloading"):
-            self.download_state["downloading"] = False
-            await self._publish_download_state()
+        # Save current state for potential restoration on resume
+        self.pre_suspend_game_state = dict(self.game_state)
+        self.pre_suspend_download_state = dict(self.download_state)
+        
+        clear_state = self.settings.get("clear_state_on_suspend", False)
+        
+        if clear_state:
+            # Clear state - old behavior
+            decky.logger.info("Clearing state on suspend (clear_state_on_suspend=True)")
+            if self.game_state.get("is_running"):
+                self.game_state["is_running"] = False
+                await self._publish_game_state()
+            
+            if self.download_state.get("downloading"):
+                self.download_state["downloading"] = False
+                await self._publish_download_state()
+        else:
+            # Keep state but mark as suspended - new default behavior
+            decky.logger.info("Keeping state on suspend (clear_state_on_suspend=False)")
+            # State is preserved - sensors will show last known values
+            # The MQTT status will show "offline" via Last Will if connection drops
+            # But we keep the last known game/download state
 
     async def _handle_system_resuming(self, event: dict):
         """Handle system resuming event."""
-        decky.logger.info("System resuming - resetting transient state")
+        decky.logger.info("System resuming - refreshing state from Steam")
         
-        # Reset transient state (game and download state will be re-established by events)
-        # Just ensure we're in a clean state
-        pass
+        self.is_suspended = False
+        
+        # Request frontend to refresh current state from Steam client
+        # This will trigger new events if there are active games/downloads
+        # The frontend will query Steam and send us updated events
+        
+        # Note: We can't directly query Steam from backend, so we rely on
+        # the frontend to detect current state and send events
+        # The frontend system event manager will need to implement a refresh method
+        
+        # For now, we keep the existing state and wait for new events
+        # If the user wants to clear on suspend, state was already cleared
+        # If not, the state is preserved and will be updated by new events
+        
+        decky.logger.info(f"Resumed - current game state: {self.game_state}")
+        decky.logger.info(f"Resumed - current download state: {self.download_state}")
 
     async def _handle_system_shutting_down(self, event: dict):
         """Handle system shutting down event."""
