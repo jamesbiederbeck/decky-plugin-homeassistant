@@ -70,7 +70,7 @@ class Plugin:
                 "game": True,
                 "download": True
             },
-            "clear_state_on_suspend": False  # Keep state during suspend by default
+            "clear_state_on_suspend": True  # Clear state during suspend by default (sensors go unavailable)
         }
 
     def _get_settings_path(self) -> Path:
