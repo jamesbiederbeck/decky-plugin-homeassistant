@@ -16,7 +16,7 @@ from pathlib import Path
 import decky
 
 # Import local lib modules
-from lib import (
+from decky_homeassistant import (
     SETTINGS_FILE,
     DOWNLOAD_COMPLETION_DELAY_SECONDS,
     get_default_hostname,
