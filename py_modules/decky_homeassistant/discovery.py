@@ -13,10 +13,11 @@ from .utils import sanitize_identifier
 class HomeAssistantDiscovery:
     """Handles MQTT Discovery for Home Assistant."""
 
-    def __init__(self, mqtt_client, hostname: str):
+    def __init__(self, mqtt_client, hostname: str, clear_state_on_suspend: bool = True):
         self.mqtt_client = mqtt_client
         self.hostname = sanitize_identifier(hostname)
         self.device_name = f"Steam Deck ({hostname})"
+        self.clear_state_on_suspend = clear_state_on_suspend
 
     def get_device_info(self) -> dict:
         """Get the device info block for MQTT Discovery."""
@@ -27,18 +28,19 @@ class HomeAssistantDiscovery:
             "model": "Steam Deck"
         }
 
-    def publish_discovery_config(self, component: str, object_id: str, config: dict):
+    def publish_discovery_config(self, component: str, object_id: str, config: dict, add_availability: bool = True):
         """Publish an MQTT Discovery configuration."""
         topic = f"{MQTT_DISCOVERY_PREFIX}/{component}/{self.hostname}_{object_id}/config"
         config["device"] = self.get_device_info()
         config["unique_id"] = f"steamdeck_{self.hostname}_{object_id}"
         
         # Add availability topic - sensors are available when plugin is connected
-        status_topic = self.mqtt_client.status_topic
-        if status_topic:
-            config["availability_topic"] = status_topic
-            config["payload_available"] = "online"
-            config["payload_not_available"] = "offline"
+        if add_availability:
+            status_topic = self.mqtt_client.status_topic
+            if status_topic:
+                config["availability_topic"] = status_topic
+                config["payload_available"] = "online"
+                config["payload_not_available"] = "offline"
         
         payload = json.dumps(config)
         self.mqtt_client.publish(topic, payload, retain=True)
@@ -67,7 +69,7 @@ class HomeAssistantDiscovery:
             "value_template": "{{ value_json.percent }}",
             "device_class": "battery",
             "state_class": "measurement"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
         # Charging status
         self.publish_discovery_config("binary_sensor", "charging", {
@@ -77,7 +79,7 @@ class HomeAssistantDiscovery:
             "payload_on": "True",
             "payload_off": "False",
             "device_class": "battery_charging"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
         # Time remaining
         self.publish_discovery_config("sensor", "battery_time_remaining", {
@@ -86,7 +88,7 @@ class HomeAssistantDiscovery:
             "unit_of_measurement": "min",
             "value_template": "{{ value_json.time_remaining_min }}",
             "icon": "mdi:battery-clock"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
     def register_disk_sensors(self):
         """Register disk-related sensors with Home Assistant."""
@@ -99,7 +101,7 @@ class HomeAssistantDiscovery:
             "unit_of_measurement": "GB",
             "value_template": "{{ value_json.internal_free_gb }}",
             "icon": "mdi:harddisk"
-        })
+        }, add_availability=False)
 
         # Internal disk used percentage
         self.publish_discovery_config("sensor", "disk_used_internal", {
@@ -108,7 +110,7 @@ class HomeAssistantDiscovery:
             "unit_of_measurement": "%",
             "value_template": "{{ value_json.internal_percent_used }}",
             "icon": "mdi:harddisk"
-        })
+        }, add_availability=False)
 
         # SD card free
         self.publish_discovery_config("sensor", "disk_free_sd", {
@@ -117,7 +119,7 @@ class HomeAssistantDiscovery:
             "unit_of_measurement": "GB",
             "value_template": "{{ value_json.sd_free_gb }}",
             "icon": "mdi:sd"
-        })
+        }, add_availability=False)
 
         # SD card mounted
         self.publish_discovery_config("binary_sensor", "sd_mounted", {
@@ -127,7 +129,7 @@ class HomeAssistantDiscovery:
             "payload_on": "True",
             "payload_off": "False",
             "icon": "mdi:sd"
-        })
+        }, add_availability=False)
 
     def register_network_sensors(self):
         """Register network-related sensors with Home Assistant."""
@@ -139,7 +141,7 @@ class HomeAssistantDiscovery:
             "state_topic": base_topic,
             "value_template": "{{ value_json.ip_primary }}",
             "icon": "mdi:ip-network"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
         # WiFi IP
         self.publish_discovery_config("sensor", "ip_wifi", {
@@ -147,7 +149,7 @@ class HomeAssistantDiscovery:
             "state_topic": base_topic,
             "value_template": "{{ value_json.ip_wifi }}",
             "icon": "mdi:wifi"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
         # Ethernet IP
         self.publish_discovery_config("sensor", "ip_ethernet", {
@@ -155,7 +157,7 @@ class HomeAssistantDiscovery:
             "state_topic": base_topic,
             "value_template": "{{ value_json.ip_ethernet }}",
             "icon": "mdi:ethernet"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
     def register_game_sensors(self):
         """Register game-related sensors with Home Assistant."""
@@ -167,7 +169,7 @@ class HomeAssistantDiscovery:
             "state_topic": base_topic,
             "value_template": "{{ value_json.game_name }}",
             "icon": "mdi:gamepad-variant"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
         # Current app ID
         self.publish_discovery_config("sensor", "current_appid", {
@@ -175,7 +177,7 @@ class HomeAssistantDiscovery:
             "state_topic": base_topic,
             "value_template": "{{ value_json.app_id }}",
             "icon": "mdi:identifier"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
         # Game running
         self.publish_discovery_config("binary_sensor", "game_running", {
@@ -185,7 +187,7 @@ class HomeAssistantDiscovery:
             "payload_on": "True",
             "payload_off": "False",
             "icon": "mdi:gamepad-variant"
-        })
+        }, add_availability=self.clear_state_on_suspend)
 
     def register_download_sensors(self):
         """Register download-related sensors with Home Assistant."""

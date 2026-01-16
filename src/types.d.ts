@@ -20,10 +20,16 @@ declare global {
   }
   
   const SteamClient: {
+    Apps: {
+      GetActiveGameActions(): Promise<any[]>;
+      GetAppDetails(appid: number): Promise<{ strDisplayName?: string; [key: string]: any }>;
+      GetCachedAppDetails(appid: number): { strDisplayName?: string; [key: string]: any } | null;
+    };
     GameSessions: {
       RegisterForAppLifetimeNotifications(
         callback: (notification: { unAppID: number; nInstanceID: number; bRunning: boolean }) => void
       ): { unregister: () => void };
+      GetActiveSessionsForUser(): Promise<any>;
     };
     Downloads: {
       RegisterForDownloadItems(
