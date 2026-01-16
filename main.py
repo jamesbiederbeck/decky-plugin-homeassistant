@@ -340,17 +340,18 @@ class Plugin:
     async def _handle_game_started(self, event: dict):
         """Handle game started event."""
         app_id = event.get("app_id")
+        app_name = event.get("app_name")
         
         # Detect unexpected event sequence
         if self.game_state.get("is_running"):
             decky.logger.warning(f"Received game_started for app_id={app_id} but game is already running (current={self.game_state.get('app_id')})")
         
-        decky.logger.info(f"Game started: app_id={app_id}")
+        decky.logger.info(f"Game started: app_id={app_id}, app_name={app_name}")
         
         # Update state
         self.game_state["is_running"] = True
         self.game_state["app_id"] = app_id
-        self.game_state["app_name"] = None  # Could lookup app name from Steam API
+        self.game_state["app_name"] = app_name
         
         # Publish to MQTT
         await self._publish_game_state()

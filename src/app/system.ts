@@ -73,6 +73,12 @@ interface SystemState {
   downloadAppId: number | null;
 }
 
+// App metadata cache entry
+interface AppMetadataEntry {
+  name: string | null;
+  timestamp: number;
+}
+
 class SystemEventManager {
   private state: SystemState = {
     currentAppId: null,
@@ -80,6 +86,10 @@ class SystemEventManager {
     isDownloading: false,
     downloadAppId: null,
   };
+
+  // Cache for app names (appid -> name)
+  private appNameCache: Map<number, AppMetadataEntry> = new Map();
+  private readonly CACHE_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
 
   private unregisterCallbacks: Array<() => void> = [];
   private initialized = false;
@@ -130,6 +140,66 @@ class SystemEventManager {
   }
 
   /**
+   * Get app name from cache or fetch from Steam Client.
+   * Returns null if app name cannot be determined.
+   */
+  private async getAppName(appId: number): Promise<string | null> {
+    if (!appId || appId <= 0) {
+      return null;
+    }
+
+    // Check cache first
+    const cached = this.appNameCache.get(appId);
+    if (cached) {
+      const age = Date.now() - cached.timestamp;
+      if (age < this.CACHE_EXPIRY_MS) {
+        console.debug(`[SystemEvents] Using cached app name for ${appId}: ${cached.name}`);
+        return cached.name;
+      }
+    }
+
+    // Try to fetch from Steam Client
+    try {
+      if (typeof SteamClient === "undefined" || !SteamClient.Apps) {
+        return null;
+      }
+
+      // First try GetCachedAppDetails (synchronous, faster)
+      try {
+        const cachedDetails = SteamClient.Apps.GetCachedAppDetails(appId);
+        if (cachedDetails && cachedDetails.strDisplayName) {
+          const name = cachedDetails.strDisplayName;
+          console.log(`[SystemEvents] Fetched app name from cache for ${appId}: ${name}`);
+          this.appNameCache.set(appId, { name, timestamp: Date.now() });
+          return name;
+        }
+      } catch (error) {
+        console.debug(`[SystemEvents] GetCachedAppDetails failed for ${appId}:`, error);
+      }
+
+      // Fallback to GetAppDetails (async, but more reliable)
+      try {
+        const appDetails = await SteamClient.Apps.GetAppDetails(appId);
+        if (appDetails && appDetails.strDisplayName) {
+          const name = appDetails.strDisplayName;
+          console.log(`[SystemEvents] Fetched app name from API for ${appId}: ${name}`);
+          this.appNameCache.set(appId, { name, timestamp: Date.now() });
+          return name;
+        }
+      } catch (error) {
+        console.debug(`[SystemEvents] GetAppDetails failed for ${appId}:`, error);
+      }
+
+      // Cache the null result to avoid repeated failed lookups
+      this.appNameCache.set(appId, { name: null, timestamp: Date.now() });
+      return null;
+    } catch (error) {
+      console.error(`[SystemEvents] Error fetching app name for ${appId}:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Refresh current state from Steam client.
    * Called on resume to check if games/downloads are still active.
    */
@@ -153,10 +223,15 @@ class SystemEventManager {
               // If we don't already have this as running, emit a game_started event
               if (!this.state.isGameRunning || this.state.currentAppId !== appId) {
                 console.log("[SystemEvents] Found running game on resume:", appId);
+                
+                // Fetch app name
+                const appName = await this.getAppName(appId);
+                
                 const event: SystemEvent = {
                   type: "game_started",
                   timestamp: Date.now(),
                   app_id: appId,
+                  app_name: appName || undefined,
                 };
                 this.emitEvent(event);
                 
@@ -288,7 +363,7 @@ class SystemEventManager {
   /**
    * Handle game lifetime events (game started/stopped).
    */
-  private handleGameLifetimeEvent(notification: AppLifetimeNotification) {
+  private async handleGameLifetimeEvent(notification: AppLifetimeNotification) {
     const appId = notification.unAppID;
     const isRunning = notification.bRunning;
 
@@ -309,11 +384,18 @@ class SystemEventManager {
     this.state.isGameRunning = isRunning;
     this.state.currentAppId = isRunning ? appId : null;
 
+    // Fetch app name if game is starting
+    let appName: string | null = null;
+    if (isRunning) {
+      appName = await this.getAppName(appId);
+    }
+
     // Emit event
     const event: SystemEvent = {
       type: isRunning ? "game_started" : "game_stopped",
       timestamp: Date.now(),
       app_id: appId,
+      app_name: appName || undefined,
     };
 
     this.emitEvent(event);
